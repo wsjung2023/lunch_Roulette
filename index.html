@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lunch Roulette</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <style>
+    :root {
+      --wheel-size: min(90vw, 500px);
+    }
+    *{box-sizing:border-box; margin:0; padding:0;}
+    body{
+      display:flex;flex-direction:column;align-items:center;min-height:100vh;
+      background:#f9f9f9;font-family:"Pretendard",sans-serif;padding:4vh 4vw;
+    }
+    h1{margin-bottom:5vh;font-size:clamp(1.2rem,5vw,1.8rem);text-align:center;line-height:1.3;}
+
+    /* ===== Wheel & Pointer ===== */
+    #container{position:relative;width:var(--wheel-size);height:var(--wheel-size);max-width:100%;}
+    svg{width:100%;height:100%;transform-origin:50% 50%;}
+    #pointer{
+      position:absolute;
+      top:-1.8vw; /* 살짝 위로 조정 */
+      left:50%;
+      transform:translateX(-50%);
+      width:0;height:0;
+      border-left:3vw solid transparent;
+      border-right:3vw solid transparent;
+      border-top:5vw solid #ff4757; /* 역삼각형: 아래로 향함 */
+      filter:drop-shadow(0 2px 4px rgba(0,0,0,.2));
+    }
+
+    /* ===== Controls ===== */
+    #controls{margin-top:6vh;display:flex;flex-direction:column;gap:12px;width:100%;max-width:480px;}
+    #menu-input{padding:12px 14px;border:1px solid #ccc;border-radius:8px;font-size:1rem;width:100%;}
+    button{padding:14px;font-size:1.05rem;font-weight:700;border:none;border-radius:10px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.08);transition:background .25s;width:100%;}
+    #add-btn{background:#1e90ff;color:#fff;}#add-btn:hover{background:#1879d6;}
+    #spin-btn{background:#20c997;color:#fff;}#spin-btn:hover{background:#16b287;}
+    @media(min-width:420px){#controls{flex-direction:row;}#add-btn,#spin-btn{width:auto;min-width:100px;}}
+
+    /* ===== Menu List ===== */
+    #menu-list{list-style:none;margin:5vh 0 0;padding:0;width:100%;max-width:480px;max-height:35vh;overflow-y:auto;}
+    #menu-list li{display:flex;align-items:center;gap:10px;background:#fff;padding:10px 14px;margin-bottom:6px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);font-size:1rem;white-space:nowrap;}
+    .food-name{flex:1;overflow:hidden;text-overflow:ellipsis;}
+    #menu-list button{flex:0 0 auto;background:none;border:none;color:#ff4757;font-size:1.3rem;cursor:pointer;line-height:1;user-select:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;}
+
+    /* ===== Result placeholder ===== */
+    #result{margin-top:4vh;font-size:1.4rem;font-weight:700;color:#ff4757;min-height:2.2em;text-align:center;}
+
+    /* ===== Modal ===== */
+    #modal{position:fixed;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);z-index:100;}
+    #modal .box{background:#fff;padding:32px 40px;border-radius:14px;text-align:center;position:relative;overflow:hidden;}
+    #modal .box h2{margin:0 0 16px;font-size:1.6rem;}
+    #modal .box button{margin-top:20px;padding:10px 24px;border:none;border-radius:8px;font-size:1rem;font-weight:700;background:#1e90ff;color:#fff;cursor:pointer;}
+    .confetti{position:absolute;width:8px;height:8px;border-radius:50%;pointer-events:none;}
+  </style>
+</head>
+<body>
+  <h1>오늘 뭐 먹지? 🍱 Lunch Roulette</h1>
+  <div id="container"><svg id="wheel"></svg><div id="pointer"></div></div>
+  <div id="controls">
+    <input id="menu-input" type="text" placeholder="메뉴 이름 입력 (최대 12개)" />
+    <button id="add-btn">추가</button>
+    <button id="spin-btn">SPIN!</button>
+  </div>
+  <ul id="menu-list"></ul>
+  <div id="result"></div>
+
+  <!-- Modal for Winner -->
+  <div id="modal"><div class="box"><h2></h2><button id="close-modal">확인</button></div></div>
+
+  <script>
+    const STORAGE_KEY='lunchRouletteMenus';const MAX_ITEMS=12;
+    const loadMenus=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const a=JSON.parse(s);if(Array.isArray(a)&&a.length)return a.slice(0,MAX_ITEMS);}}catch(e){}return["김치찌개","돈까스","비빔밥","라면","초밥","파스타","불고기","떡볶이"]};
+    const saveMenus=()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(menus));
+
+    let menus=loadMenus();
+
+    const wheel=document.getElementById('wheel');const container=document.getElementById('container');const resultEl=document.getElementById('result');const input=document.getElementById('menu-input');const addBtn=document.getElementById('add-btn');const spinBtn=document.getElementById('spin-btn');const listEl=document.getElementById('menu-list');
+    const modal=document.getElementById('modal');const modalTitle=modal.querySelector('h2');const closeModal=document.getElementById('close-modal');
+
+    const polarToCartesian=(cx,cy,r,deg)=>{const rad=(deg-90)*Math.PI/180;return{x:cx+r*Math.cos(rad),y:cy+r*Math.sin(rad)}};
+    const describeSlice=(cx,cy,r,sA,eA)=>{const start=polarToCartesian(cx,cy,r,eA);const end=polarToCartesian(cx,cy,r,sA);const large=eA-sA<=180?0:1;return[`M`,cx,cy,`L`,start.x,start.y,`A`,r,r,0,large,0,end.x,end.y,`Z`].join(' ')};
+    const randomColor=(i,n)=>`hsl(${Math.round(i*360/n)},70%,65%)`;
+
+    function drawWheel(){const size=container.clientWidth;wheel.setAttribute('viewBox',`0 0 ${size} ${size}`);wheel.innerHTML='';const r=size/2,n=menus.length;if(!n)return;const angle=360/n;const fontBase=Math.max(12,size*0.045);
+      menus.forEach((label,i)=>{const sA=i*angle,eA=(i+1)*angle,mid=sA+angle/2;const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',describeSlice(r,r,r,sA,eA));path.setAttribute('fill',randomColor(i,n));path.setAttribute('stroke','#fff');path.setAttribute('stroke-width',1);wheel.appendChild(path);const pos=polarToCartesian(r,r,r*0.62,mid);const txt=document.createElementNS('http://www.w3.org/2000/svg','text');txt.setAttribute('x',pos.x);txt.setAttribute('y',pos.y);txt.setAttribute('fill','#2f3542');txt.setAttribute('font-size',fontBase);txt.setAttribute('font-weight',700);txt.setAttribute('text-anchor','middle');txt.setAttribute('alignment-baseline','middle');txt.textContent=label;txt.setAttribute('transform',`rotate(${mid} ${pos.x} ${pos.y})`);wheel.appendChild(txt);});gsap.set(wheel,{rotation:0});}
+
+    function renderMenuList(){listEl.innerHTML='';menus.forEach((m,i)=>{const li=document.createElement('li');const span=document.createElement('span');span.className='food-name';span.textContent=m;li.appendChild(span);const del=document.createElement('button');del.textContent='✕';del.addEventListener('click',()=>{menus.splice(i,1);saveMenus();drawWheel();renderMenuList();});li.appendChild(del);listEl.appendChild(li);});}
+
+    const toast=msg=>alert(msg);
+
+    addBtn.addEventListener('click',()=>{const val=input.value.trim();if(!val)return;if(menus.includes(val)){toast('이미 존재하는 메뉴입니다!');return;}if(menus.length>=MAX_ITEMS){toast(`메뉴는 최대 ${MAX_ITEMS}개까지 가능합니다. 일부를 삭제한 뒤 추가해 주세요.`);return;}menus.push(val);saveMenus();input.value='';drawWheel();renderMenuList();});
+
+    function showWinner(name){modalTitle.textContent=`오늘의 점심은 "${name}"!`;modal.style.display='flex';// confetti
+      const box=modal.querySelector('.box');for(let i=0;i<30;i++){const dot=document.createElement('div');dot.className='confetti';dot.style.background=`hsl(${Math.random()*360},80%,60%)`;box.appendChild(dot);gsap.set(dot,{x:0,y:0,scale:1});gsap.to(dot,{duration:0.9,x:(Math.random()-0.5)*300,y:(Math.random()-1)*300,scale:0,opacity:0,ease:'power2.out',onComplete:()=>dot.remove()});}}
+    closeModal.addEventListener('click',()=>{modal.style.display='none';});
+    modal.addEventListener('click',e=>{if(e.target===modal)modal.style.display='none';});
+
+    spinBtn.addEventListener('click',()=>{if(!menus.length){resultEl.textContent='메뉴가 없습니다!';return;}if(gsap.isTweening(wheel))return;resultEl.textContent='';const n=menus.length,angle=360/n;const target=Math.floor(Math.random()*n);const targetMid=target*angle+angle/2;const extra=(Math.floor(Math.random()*3)+4)*360;const final=extra+360-targetMid;gsap.to(wheel,{rotation:final,duration:5,ease:'power4.out',onComplete:()=>{showWinner(menus[target]);}});
+    });
+
+    drawWheel();renderMenuList();window.addEventListener('resize',drawWheel);
+  </script>
+</body>
+</html>
